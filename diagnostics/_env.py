@@ -15,8 +15,8 @@
 import glob
 import os
 
-# 原作者环境的路径，仅作为最后兜底（在别人的机器上会被自动探测覆盖）
-_EXAMPLE_ROOT = r"D:\saves\GPT-SoVITS\GPT-SoVITS"
+# 最后兜底用的示例路径（在别人的机器上会被自动探测覆盖）
+_EXAMPLE_ROOT = r"D:\GPT-SoVITS"
 _EXAMPLE_VENV = "venv_torch25"
 _VENV_NAMES = ("venv_torch25", "venv", ".venv", "env")
 

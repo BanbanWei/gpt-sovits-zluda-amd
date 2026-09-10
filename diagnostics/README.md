@@ -48,9 +48,9 @@ $env:GPT_SOVITS_TEST_WAV = 'D:\some\audio.wav'            # 探针用的测试�
 输出示例：
 
 ```
-GPT_SOVITS_ROOT          : D:\saves\GPT-SoVITS\GPT-SoVITS
-GPT_SOVITS_PYTHON        : D:\saves\GPT-SoVITS\venv_torch25\Scripts\python.exe True
-GPT_SOVITS_SITE_PACKAGES : D:\saves\GPT-SoVITS\venv_torch25\Lib\site-packages True
+GPT_SOVITS_ROOT          : D:\path\to\GPT-SoVITS
+GPT_SOVITS_PYTHON        : D:\path\to\venv_torch25\Scripts\python.exe True
+GPT_SOVITS_SITE_PACKAGES : D:\path\to\venv_torch25\Lib\site-packages True
 TEST_WAV                 : D:\...\logs\GBC\5-wav32k\GBC.m4a_0000123520_0000258880.wav True
 ```
 

@@ -386,9 +386,9 @@ Fun-ASR-Nano 有真正的批实现 `_inference_llm_batch`（左填充 + 修正 `
 
 | 项目 | 结果 |
 |---|---|
-| SoVITS (s2) 训练 | 81 步 × 8 轮，~3.66 s/步，`saving ckpt 安和昴_e8:Success.`，`rc=0` |
+| SoVITS (s2) 训练 | 81 步 × 8 轮，~3.66 s/步，`saving ckpt <角色名>_e8:Success.`，`rc=0` |
 | GPT (s1) 训练 | 79 步/轮 × 15 轮，~88 秒/轮，`epoch=4-step=95.ckpt`(888.3 MB) 正常落盘 |
-| 小权重产出 | `SoVITS_weights_v2Pro\安和昴_e8_s648.pth`(128.7 MB)、`GPT_weights_v2Pro\安和昴-e*.ckpt`(148 MB) |
+| 小权重产出 | `SoVITS_weights_v2Pro\<角色名>_e8_s648.pth`(128.7 MB)、`GPT_weights_v2Pro\<角色名>-e*.ckpt`(148 MB) |
 | 前处理 | `4-cnhubert` / `5-wav32k` / `7-sv_cn` 各 317，全通 |
 | 推理 | 可选新权重合成；首次调用慢（JIT），之后正常 |
 
