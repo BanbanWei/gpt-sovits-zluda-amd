@@ -255,7 +255,7 @@ git apply <本仓库>\patches\gpt-sovits-zluda.patch
 | `GPT_SoVITS/s1_train.py`、`AR/data/bucket_sampler.py` | 坑 8（单卡不套 DDP） |
 | `GPT_SoVITS/module/core_vq.py` | 修 `dist.get_rank()` 无进程组即崩（首次推理必踩） |
 | `GPT_SoVITS/text/chinese.py`、`chinese2.py`、`tone_sandhi.py` | `jieba_fast` 回退到 `jieba` |
-| `tools/asr/funasr_asr.py` | FunASR 固定 CPU（见下文"已知限制"） |
+| `tools/asr/funasr_asr.py` | FunASR 默认走 GPU + 加 `FUNASR_DEVICE` 覆盖（见下文"已知限制"） |
 
 验证补丁是否与你的代码兼容：
 
@@ -342,9 +342,21 @@ C:\ZLUDA\bin\zluda.exe <venv>\Scripts\python.exe diagnostics\run_modes.py diagno
 
 1. **GPU FFT 不可用。** 本项目已把 3 处 FFT 调用挪到 CPU，所以不影响训练/推理；但**其他依赖 GPU FFT 的库在 gfx1032 上仍会挂死**，注意别引入。
 
-2. **FunASR (ASR) 固定在 CPU。** FunASR 自带音频前端用 FFT，为避免踩 rocFFT 挂死，本项目把它钉在 CPU。
-   **实测过 GPU 也可用**（`device="cuda"` 正常返回相同文本、`exit=0`），但**只快约 8%**（forward 2.346s → 2.167s）——因为 Fun-ASR-Nano 是逐 token 自回归解码的小模型，batch=1、GPU 大部分时间在等 CPU 派发。CPU 下 RTF ≈ 0.55，已快于实时。**因此建议维持 CPU。**
-   想试 GPU：`tools/asr/funasr_asr.py` 第 58 行 `"cpu"` 改 `"cuda"`。
+2. **FunASR (ASR) 默认走 GPU，但别开 batch。**
+   ASR 上 GPU 是**同时赢速度和内存**的（实测同环境）：
+
+   | 配置 | 吞吐 | 峰值内存 | 317 条 |
+   |---|---|---|---|
+   | CPU 单进程 | 0.47 条/秒 | 6.85 GB | ~11.4 min |
+   | CPU 双进程（各 1 线程） | 0.748 条/秒 | 13.7 GB | ~7.1 min |
+   | **GPU 单进程** | **1.034 条/秒** | **6.85 GB** | **~5.1 min** |
+
+   GPU 比 CPU 单进程快约 **2.2×**、比双进程快约 **1.38×**，内存只要一半。代价是 **3.33 GB 显存**和一次性 **55–100 秒 JIT 预热**。
+   **训练同时跑 ASR 时用 `set FUNASR_DEVICE=cpu` 强制回 CPU**（显存留给训练）。
+
+   另外两条重要事实：
+   - **"ASR 上 GPU 会踩 rocFFT" 是错的。** FunASR 的 fbank 永远在 CPU 上算（调用点在 `to_device` 之前），实测 CPU/GPU 输出逐条一致。
+   - **不要开 batch。** 批路径在 ZLUDA 下输出退化的重复文本（连"8 条完全相同的输入"都会给出 8 个不同的垃圾答案），会把标注悄悄污染。**别用 `batch_size_s` / `merge_vad` 之类的开关加速。**
 
 3. **不要裸跑 FunASR。** 走 webui（它会设 `KMP_DUPLICATE_LIB_OK`），或在你的脚本里自己设，否则可能静默 abort。
 

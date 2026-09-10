@@ -500,20 +500,43 @@ index 4ed7378..a9fe2ea 100644
  from pypinyin import Style
  
 diff --git a/tools/asr/funasr_asr.py b/tools/asr/funasr_asr.py
-index 56d5336..202b9f8 100644
+index 56d5336..dcd0913 100644
 --- a/tools/asr/funasr_asr.py
 +++ b/tools/asr/funasr_asr.py
-@@ -55,7 +55,12 @@ def create_model(language="zh", **kwargs):
+@@ -55,14 +55,25 @@ def create_model(language="zh", **kwargs):
      # For non-classic backends, route to multilingual models regardless of language
      if backend in ("fun-asr-nano", "sensevoice") and language != "yue":
          import torch
 -        device = "cuda" if torch.cuda.is_available() else "cpu"
 +
-+        # Pinned to CPU on purpose.  FunASR's own audio front-end computes FFT, and
-+        # on this ZLUDA/ROCm setup rocFFT is broken in a way that HANGS the process
-+        # instead of raising an error.  CPU runs at RTF ~0.6 (faster than realtime).
-+        # Upstream line was: device = "cuda" if torch.cuda.is_available() else "cpu"
-+        device = "cpu"
++        # GPU by default when available (实测 RX 6600 + ZLUDA: 0.97 s/条,
++        # 约 1.034 条/秒; 两个单线程 CPU 进程只有 0.748 条/秒, 而且要 13.7 GB
++        # 内存, GPU 只要 6.8 GB). 设 FUNASR_DEVICE=cpu 可强制回 CPU,
++        # 例如训练同时跑 ASR 时 —— GPU 路径约占 3.3 GB 显存.
++        #
++        # 注意: 之前这里固定 CPU 的理由是"FunASR 前端要算 FFT 而 rocFFT 是坏的",
++        # 那个理由不成立 —— FunASR 的 fbank 永远在 CPU 上算
++        # (funasr/utils/fbank.py 会把波形转到 numpy, 且调用点在 to_device 之前),
++        # 所以 GPU 路径不会碰到 rocFFT. 已实测 CPU/GPU 输出逐条一致.
++        # 另外不要试图用 batch: _inference_llm_batch 在 ZLUDA 下会输出退化重复文本.
++        device = os.environ.get("FUNASR_DEVICE") or ("cuda" if torch.cuda.is_available() else "cpu")
          cache_key = f"{language}_{backend}"
          if cache_key in funasr_models:
              return funasr_models[cache_key]
+ 
+         if backend == "fun-asr-nano":
+             model = create_fun_asr_nano_model(device)
+-            print(f"FunASR Fun-ASR-Nano 模型加载完成: {language.upper()}")
++            print(f"FunASR Fun-ASR-Nano 模型加载完成: {language.upper()} (device={device})")
+         else:
+             model = AutoModel(
+                 model="iic/SenseVoiceSmall",
+@@ -70,7 +81,7 @@ def create_model(language="zh", **kwargs):
+                 device=device,
+                 disable_update=True,
+             )
+-            print(f"FunASR SenseVoice 模型加载完成: {language.upper()}")
++            print(f"FunASR SenseVoice 模型加载完成: {language.upper()} (device={device})")
+ 
+         funasr_models[cache_key] = model
+         return model

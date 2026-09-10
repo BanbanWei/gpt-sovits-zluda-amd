@@ -138,6 +138,7 @@ RESULT OK AMD Radeon RX 6600 [ZLUDA] (8, 8)
 | `PYTHONUTF8` | `1` | 启动器 bat | 避免 rich 进度条写 `•` 到 GBK 控制台时 `UnicodeEncodeError` |
 | `PYTHONIOENCODING` | `utf-8` | 启动器 bat | 同上 |
 | `KMP_DUPLICATE_LIB_OK` | `TRUE` | **webui.py 自己设** | OpenMP 重复加载会 **abort 进程且无 traceback**。裸跑 FunASR 时必须自己设 |
+| `FUNASR_DEVICE` | `cpu` 可强制回 CPU | 可选 | 不给则 ASR 默认走 GPU。训练同时跑 ASR 时设 `cpu`（GPU 路径占约 3.33 GB 显存） |
 | `ZLUDA_COMPAT` | `0` 可关 | 可选 | 整体关闭兼容层 |
 | `ZLUDA_COMPAT_VERBOSE` | `1` 开日志 | 可选 | 打印兼容层做了什么 |
 

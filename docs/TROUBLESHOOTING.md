@@ -585,3 +585,33 @@ dist.broadcast(cluster_size, src=0)   # ← 没判断
 | `Precision 16-mixed is not supported by the model summary` | Lightning 说它没法准确估算模型体积。无影响 |
 | `Disabling CTC timestamps because the checkpoint did not initialize 86 of 86 required CTC tensors` | FunASR 的模型没带 CTC 头权重，关掉时间戳功能。**下一句就写着 `Text transcription remains available`** —— 转写照常 |
 | `UnicodeEncodeError: 'gbk' codec can't encode character '\u2022'` | rich 进度条想往 GBK 控制台写 `•`。启动器里加 `chcp 65001` + `PYTHONUTF8=1` 即可 |
+
+---
+
+## 附二：会**静默毁掉数据**的坑 —— 别开 FunASR 的 batch
+
+这个不属于"8 个兼容问题"，但后果比它们都严重，所以单独列出来。
+
+**诱因**：Fun-ASR-Nano 里确实有一个正经的批实现 `_inference_llm_batch`（左填充、修正 `position_ids`、一次 `llm.generate` 跑完一批），而且因为官方 checkpoint 不含 CTC 权重、FunASR 会自动禁用 CTC 解码器，这个分支**不改一行代码就可达**。看到这些的人很容易顺手把 `batch_size_s` 调大来加速。
+
+**实际后果**：输出变成退化的重复文本，**但进程不报错、退出码为 0、进度条一切正常**。
+
+| 方式 | 耗时 | 输出 |
+|---|---|---|
+| 串行 | 1.12 s/条 | ✅ `よろしくね。ええ、ケチ。あ。` |
+| 变长批 ×8 | 5.63 s/条 | ❌ `よろろろしくしくくくくくくねくねね…` |
+| **等长批 ×8（零填充）** | 0.41 s/条 | ❌ 仍然退化 |
+
+**决定性证据是"等长批"**：8 条**完全相同**的输入、零填充、`position_ids` 就是平凡的 `0..T-1` —— 输出依然是垃圾，**而且 8 条结果互不相同**（长度 43/44/45/46/47 混杂）。
+
+确定性贪心解码对相同输入给出 8 个不同答案，说明**批路径的数值本身就是错的**，与填充逻辑无关。这与坑 7（ZLUDA 小张量归约返回错误值）同源。
+
+**为什么危险**：ASR 是训练数据的前置步骤。批量输出的垃圾会直接写进 `*.list` 标注文件，然后被 SoVITS/GPT 训练当成正确答案学进去。你从控制台上**看不出任何异常**。
+
+**结论**：
+- 不要用 `batch_size_s`、`merge_vad` 之类的开关给 ASR 加速。
+- 另外注意在 CPU 上 FunASR 本来就会强行关掉组批（`auto_model.py` 里 `if kwargs["device"] == "cpu": batch_size = 0`），所以这个坑只在 GPU 上才会踩到。
+- 顺带一条测量陷阱：**不加 `zluda.exe` 时 `torch.cuda.is_available()` 是 False，而 `AutoModel(device="cuda")` 不报错、直接退回 CPU**。症状是"GPU"和 CPU 的耗时逐条几乎完全一样。做任何 GPU 对比前先确认 `torch.cuda.is_available()`。
+
+完整实测数据见 [`VERIFICATION.md` 第 9 节](VERIFICATION.md)。
+

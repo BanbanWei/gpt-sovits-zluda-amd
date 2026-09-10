@@ -171,6 +171,24 @@ C:\ZLUDA\bin\zluda.exe <venv>\Scripts\python.exe probe_funasr_runner.py
 
 > **注意**：`probe_funasr_runner.py` 会设 `KMP_DUPLICATE_LIB_OK=TRUE`。这是必须的 —— 见下方"附带发现"。
 
+**必须用 `zluda.exe` 包住**，否则 `torch.cuda.is_available()` 会是 `False`，而 `AutoModel(device="cuda")` **不报错、直接退回 CPU** —— 你会得到一份"GPU 和 CPU 一样快"的假结论。判据是两条路径的逐条耗时**几乎完全相同**（实测 `1.806/1.809/1.808` 对 `1.809/1.802/1.819`）。
+
+**实测结论**（RX 6600 + ZLUDA，Fun-ASR-Nano，317 条约 5 秒切片）：
+
+| 配置 | 吞吐 | 峰值内存 | 显存 |
+|---|---|---|---|
+| CPU 单进程 | 0.47 条/秒 | 6.85 GB | — |
+| CPU 双进程（各 1 线程） | 0.748 条/秒 | 13.7 GB | — |
+| **GPU 单进程** | **1.034 条/秒** | 6.85 GB | 3.33 GB |
+
+GPU 同时赢速度和内存。三个反直觉的点值得记住：
+
+- **CPU 线程越多越慢**（1 线程 1.932 s/条 → 12 线程 2.183 s/条），而**内存与线程数完全无关**（6801–6851 MB）。所以 CPU 方案要多个单线程进程，不是一个多线程进程。
+- **并行扩展不线性，瓶颈是内存带宽**：1 进程 0.465 → 2 进程 0.676（1.45×）→ 3 进程 0.716（1.54×）。核没用满（2 线程跑 6 核），带宽先满。
+- **"ASR 上 GPU 会踩 rocFFT" 是错的**：FunASR 的 fbank 永远在 CPU 上算（调用点在 `to_device` 之前），实测 CPU/GPU 输出逐条一致。
+
+**不要试图用 batch 加速** —— 批路径在 ZLUDA 下输出退化的重复文本，且退出码为 0、毫无告警。详见 [`../docs/TROUBLESHOOTING.md`](../docs/TROUBLESHOOTING.md) 附二。
+
 ---
 
 ## 4. 几个不能直接跑的脚本
