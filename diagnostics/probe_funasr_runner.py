@@ -15,14 +15,29 @@ be told apart from a crash.
 """
 import os
 import subprocess
+import sys
 import time
 
 import _env
+
+# 回显子进程日志时，当前控制台编码可能表示不了某些字符；不设容错的话
+# print 会抛 UnicodeEncodeError，把后面那一轮也一起打断。
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
 PY = _env.gpt_sovits_python()
 ONE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "probe_funasr_device.py")
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "probe_out")
 CWD = _env.gpt_sovits_root()
 TIMEOUT = 420
+
+if not os.path.isfile(PY):
+    print("找不到 Python 解释器：%s" % PY)
+    print(r"请设置 GPT_SOVITS_PYTHON=D:\path\to\venv\Scripts\python.exe")
+    sys.exit(2)
 
 os.makedirs(OUT, exist_ok=True)
 

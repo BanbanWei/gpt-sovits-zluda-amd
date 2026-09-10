@@ -12,6 +12,16 @@ import sys
 import time
 
 import _env
+
+# 本进程自己的 stdout 也要能容错：下面会把子进程日志回显出来，一旦里面有
+# 当前控制台编码表示不了的字符（比如 GBK 控制台遇到替换字符 U+FFFD），
+# print 会抛 UnicodeEncodeError 并**打断整轮扫描**。
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
 PY = _env.gpt_sovits_python()
 CWD = _env.gpt_sovits_root()
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "probe_out")
@@ -19,6 +29,12 @@ OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "probe_out")
 script = os.path.abspath(sys.argv[1])   # 子进程 cwd 不同，必须先转绝对路径
 timeout = int(sys.argv[2])
 modes = sys.argv[3:]
+
+if not os.path.isfile(PY):
+    print("找不到 Python 解释器：%s" % PY)
+    print("请设置 GPT_SOVITS_PYTHON 指向 venv 里的 python.exe，例如：")
+    print(r'  set GPT_SOVITS_PYTHON=D:\path\to\venv\Scripts\python.exe')
+    sys.exit(2)
 
 os.makedirs(OUT, exist_ok=True)
 tag = os.path.splitext(os.path.basename(script))[0]
@@ -32,6 +48,12 @@ for i, m in enumerate(modes, 1):
     env = dict(os.environ)
     env["PYTHONUNBUFFERED"] = "1"
     env["PYTHONDONTWRITEBYTECODE"] = "1"
+    # 必须显式指定：stdout 被重定向到文件时，子进程会退回系统区域编码
+    # （中文 Windows 上是 cp936），写的字节和下面按 UTF-8 读回来的不一致，
+    # 日志会变成乱码；更糟的是乱码解码出的替换字符会让上面的 print 抛
+    # UnicodeEncodeError，把整轮扫描打断。
+    env["PYTHONUTF8"] = "1"
+    env["PYTHONIOENCODING"] = "utf-8"
 
     t0 = time.time()
     with open(of, "w", encoding="utf-8", errors="replace") as fh:

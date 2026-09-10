@@ -80,6 +80,8 @@ def find_test_wav():
     """随便找一个可用于测试的音频（探针只需要一段真实 32k wav）。
 
     优先环境变量 GPT_SOVITS_TEST_WAV；否则在 <root>/logs/*/5-wav32k/ 下找第一个。
+    **找不到时返回 None**（调用方应给出明确提示，而不是拿一个假路径去报
+    FileNotFoundError）。
     """
     env = os.environ.get("GPT_SOVITS_TEST_WAV")
     if env and os.path.isfile(env):
@@ -94,11 +96,15 @@ def find_test_wav():
         hits = sorted(glob.glob(pat))
         if hits:
             return hits[0]
-    return os.path.join(root, "logs", "GBC", "5-wav32k", "GBC.m4a_0000123520_0000258880.wav")
+    return None
 
 
 if __name__ == "__main__":
+    _wav = find_test_wav()
     print("GPT_SOVITS_ROOT          :", gpt_sovits_root())
     print("GPT_SOVITS_PYTHON        :", gpt_sovits_python(), os.path.isfile(gpt_sovits_python()))
     print("GPT_SOVITS_SITE_PACKAGES :", gpt_sovits_site_packages(), os.path.isdir(gpt_sovits_site_packages()))
-    print("TEST_WAV                 :", find_test_wav(), os.path.isfile(find_test_wav()))
+    if _wav:
+        print("TEST_WAV                 :", _wav, os.path.isfile(_wav))
+    else:
+        print("TEST_WAV                 : (未找到) 需要真实音频的探针请设 GPT_SOVITS_TEST_WAV")

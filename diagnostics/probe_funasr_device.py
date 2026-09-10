@@ -23,7 +23,12 @@ def log(*a):
 
 log("START device=%s" % DEVICE)
 log("  cwd            :", os.getcwd())
-log("  wav exists     :", os.path.exists(WAV), WAV)
+log("  wav            :", WAV, os.path.isfile(WAV) if WAV else False)
+
+if not WAV or not os.path.isfile(WAV):
+    # 这个探针需要一个真实音频；没有就明确说清楚，别让它以别的形式失败。
+    log("RESULT SKIP 需要一段真实音频，请设置 GPT_SOVITS_TEST_WAV 指向一个 wav 文件")
+    sys.exit(2)
 
 try:
     import torch
