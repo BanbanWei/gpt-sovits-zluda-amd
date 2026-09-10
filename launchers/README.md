@@ -19,17 +19,45 @@
 
 **任何重定向（写文件、管道）都会让 rich 判定"不是终端"从而不画进度条。** 想看到 GPT 的实时进度，就必须用普通那个。
 
-## 必须改的三处路径
+## 路径：默认不用改
 
-两个 bat 里都有这几个硬编码路径，按你自己的环境替换：
+两个 bat 会自己找路径，**layout 正常时零配置**。
+
+探测顺序（`%~dp0..` 是 `launchers\` 的上级目录）：
+
+| 要找的 | 依次尝试 |
+|---|---|
+| 项目根目录 | `..\GPT-SoVITS\GPT-SoVITS` → `..\GPT-SoVITS` → `GPT-SoVITS` → 上级目录本身 |
+| venv | `<项目>\venv_torch25` → `<项目>\..\venv_torch25` → `..\venv_torch25` → `<项目>\venv` → `<项目>\.venv` |
+| ZLUDA | `C:\ZLUDA`（可用 `ZLUDA_DIR` 改） |
+
+项目根目录的判定条件是**同时存在 `webui.py` 和 `GPT_SoVITS\`**，所以不会误认。
+
+找不到时会明确告诉你该改哪个变量：
+
+```
+[错误] 找不到 GPT-SoVITS 项目。
+       请编辑本文件的"配置区"，设置 GPT_ROOT。
+```
+
+### 布局特殊时改哪里
+
+改 bat 顶部「配置区」这三行：
 
 ```bat
-cd /d "<GPT-SoVITS 根目录>"
-
-if not exist "<venv>\Scripts\python.exe" ( ... )
-
-"C:\ZLUDA\bin\zluda.exe" "<venv>\Scripts\python.exe" webui.py
+set "GPT_ROOT="      ← 留空 = 自动探测；填绝对路径则强制使用
+set "VENV_DIR="      ← 同上
+set "ZLUDA_DIR=C:\ZLUDA"
 ```
+
+也可以先设环境变量，**优先级高于配置区**：
+
+```bat
+set "GPT_SOVITS_ROOT=D:\path\to\GPT-SoVITS"
+set "GPT_SOVITS_VENV=D:\path\to\venv_torch25"
+```
+
+> 环境变量名的风格和 `diagnostics/` 保持一致，所以两套工具可以共用同一份配置。
 
 ## 必须保持 CRLF 换行
 
@@ -58,6 +86,14 @@ bat 采用 **UTF-8（无 BOM）+ 文件第二行 `chcp 65001`**。因为第一�
 
 ```
 UnicodeEncodeError: 'gbk' codec can't encode character '\u2022'
+```
+
+**日志文件的编码**：PowerShell 5.1 的 `Tee-Object` 写出来是 **UTF-16LE**，很多编辑器/grep 看起来像乱码或二进制。带日志的 bat 会在进程退出后自动转成 **UTF-8 (无 BOM)**，所以 `webui_console.log` 一般是可直接阅读的。如果转换步骤失败（不影响启动结果），手动转：
+
+```powershell
+$p = 'webui_console.log'
+$c = Get-Content -Raw -LiteralPath $p
+[IO.File]::WriteAllText($p, $c, (New-Object Text.UTF8Encoding $false))
 ```
 
 ## 关于 `zluda.exe` 的参数解析
