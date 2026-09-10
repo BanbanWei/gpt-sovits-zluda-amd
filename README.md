@@ -263,6 +263,20 @@ git apply <本仓库>\patches\gpt-sovits-zluda.patch
 git apply --check <本仓库>\patches\gpt-sovits-zluda.patch
 ```
 
+**如果 `--check` 失败**（你的 GPT-SoVITS 比 `48b1a01` 新/旧，上游改动撞车了），两个选择：
+
+```powershell
+# 1) 三方合并：能自动合的自动合，剩下的标冲突让你手动解决
+git apply --3way <本仓库>\patches\gpt-sovits-zluda.patch
+
+# 2) 直接切到与补丁一致的版本再打
+git stash && git checkout 48b1a01 && git apply <本仓库>\patches\gpt-sovits-zluda.patch
+```
+
+> **`--3way` 的前提**：补丁里带了 11 个前置 blob 哈希（`index abcd123..`），三方合并要求这些 blob 在**你的**仓库对象库里存在。你的 clone 只要包含 `48b1a01`（哪怕 HEAD 更新）就满足；如果报 `repository lacks the necessary blob`，说明缺历史，改用方案 2，或者手工对照文档逐个坑重做。
+
+补丁改的都是**小范围、语义明确**的地方（拿形状替代归约、把 FFT 挪 CPU、包一层 `is_initialized`），所以手工重做完全可行 —— [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) 按"根因 → 解法 → 验证"组织，就是为了让你不仅会打补丁，也能自己改。
+
 **6.3 启动器**
 
 `launchers/` 下两个 `.bat`（**必须 CRLF 换行**，否则 cmd 解析多行 `if ( )` 块会出错）：
