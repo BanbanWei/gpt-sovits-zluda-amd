@@ -26,12 +26,19 @@ def _looks_like_root(p):
 
 
 def gpt_sovits_root():
-    """GPT-SoVITS 仓库根目录。"""
+    """GPT-SoVITS 仓库根目录。
+
+    查找顺序：环境变量 → 从当前目录/本文件所在目录逐级向上 → **兄弟目录** → 兜底。
+    兄弟目录这段很关键：最常见的用法是把本仓库 clone 到 GPT-SoVITS 项目**旁边**，
+    这时向上找是找不到的（两者平级），必须显式往旁边看。
+    """
     env = os.environ.get("GPT_SOVITS_ROOT")
     if env and _looks_like_root(env):
         return os.path.abspath(env)
 
     here = os.path.dirname(os.path.abspath(__file__))
+
+    # 1) 逐级向上
     for start in (os.getcwd(), here):
         cur = os.path.abspath(start)
         for _ in range(8):
@@ -41,6 +48,14 @@ def gpt_sovits_root():
             if parent == cur:
                 break
             cur = parent
+
+    # 2) 兄弟目录：<仓库上级>/GPT-SoVITS/GPT-SoVITS、<仓库上级>/GPT-SoVITS ...
+    repo = os.path.dirname(here)                       # 本仓库根（diagnostics 的上一级）
+    for base in (os.path.dirname(repo), repo):
+        for rel in ("GPT-SoVITS/GPT-SoVITS", "GPT-SoVITS", "gpt-sovits/GPT-SoVITS"):
+            cand = os.path.join(base, *rel.split("/"))
+            if _looks_like_root(cand):
+                return os.path.abspath(cand)
 
     if env:  # 用户明确指定了，即使不像也照用
         return os.path.abspath(env)
