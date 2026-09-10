@@ -1,0 +1,519 @@
+diff --git a/GPT_SoVITS/AR/data/bucket_sampler.py b/GPT_SoVITS/AR/data/bucket_sampler.py
+index d845733..4b2f623 100644
+--- a/GPT_SoVITS/AR/data/bucket_sampler.py
++++ b/GPT_SoVITS/AR/data/bucket_sampler.py
+@@ -39,11 +39,13 @@ class DistributedBucketSampler(Sampler[T_co]):
+         if num_replicas is None:
+             if not dist.is_available():
+                 raise RuntimeError("Requires distributed package to be available")
+-            num_replicas = dist.get_world_size() if torch.cuda.is_available() else 1
++            # ZLUDA: checking CUDA alone is not enough - a single-device run has no
++            # process group, and dist.get_world_size() then raises.
++            num_replicas = dist.get_world_size() if (torch.cuda.is_available() and dist.is_initialized()) else 1
+         if rank is None:
+             if not dist.is_available():
+                 raise RuntimeError("Requires distributed package to be available")
+-            rank = dist.get_rank() if torch.cuda.is_available() else 0
++            rank = dist.get_rank() if (torch.cuda.is_available() and dist.is_initialized()) else 0
+             if torch.cuda.is_available():
+                 torch.cuda.set_device(rank)
+         if rank >= num_replicas or rank < 0:
+diff --git a/GPT_SoVITS/AR/models/t2s_model.py b/GPT_SoVITS/AR/models/t2s_model.py
+index ac905f4..733c3de 100644
+--- a/GPT_SoVITS/AR/models/t2s_model.py
++++ b/GPT_SoVITS/AR/models/t2s_model.py
+@@ -16,6 +16,7 @@ from AR.models.utils import (
+     make_pad_mask_left,
+     make_reject_y,
+     sample,
++    seq_max_len,
+     topk_sampling,
+ )
+ from AR.modules.embedding import SinePositionalEmbedding, TokenEmbedding
+@@ -356,17 +357,23 @@ class Text2SemanticDecoder(nn.Module):
+         x = self.ar_text_embedding(x)
+         x = x + self.bert_proj(bert_feature.transpose(1, 2))
+         x = self.ar_text_position(x)
+-        x_mask = make_pad_mask_left(x_lens)
++        # ZLUDA: derive the mask widths from the padded data tensors themselves.
++        # *_lens is a tiny CUDA tensor and under ZLUDA its values can arrive stale
++        # (observed 61 and 119 for a true maximum of 134), which built masks of the
++        # wrong width and aborted training.  The padded width is what must match.
++        x_len = x.shape[1]
++        x_mask = make_pad_mask_left(x_lens, x_len)
+ 
+-        y_mask = make_pad_mask(y_lens)
++        y_len = y.shape[1]
++        y_mask = make_pad_mask(y_lens, y_len)
+         y_mask_int = y_mask.type(torch.int64)
+         codes = y.type(torch.int64) * (1 - y_mask_int)
+ 
+         # Training
+         # AR Decoder
+         y, targets = self.pad_y_eos(codes, y_mask_int, eos_id=self.EOS)
+-        x_len = x_lens.max()
+-        y_len = y_lens.max()
++        x_len = x.shape[1]
++        y_len = y.shape[1]
+         y_emb = self.ar_audio_embedding(y)
+         y_pos = self.ar_audio_position(y_emb)
+ 
+@@ -419,7 +426,7 @@ class Text2SemanticDecoder(nn.Module):
+             (xy_pos, None),
+             mask=xy_attn_mask,
+         )
+-        x_len = x_lens.max()
++        x_len = x.shape[1]  # ZLUDA: width from the data, not from a tiny lens tensor
+         logits = self.ar_predict_layer(xy_dec[:, x_len-1:])
+ 
+         ###### DPO #############
+@@ -431,7 +438,7 @@ class Text2SemanticDecoder(nn.Module):
+             (reject_xy_pos, None),
+             mask=reject_xy_attn_mask,
+         )
+-        x_len = x_lens.max()
++        x_len = x.shape[1]  # ZLUDA: width from the data, not from a tiny lens tensor
+         reject_logits = self.ar_predict_layer(reject_xy_dec[:, x_len-1:])
+ 
+         # loss
+@@ -455,17 +462,23 @@ class Text2SemanticDecoder(nn.Module):
+         x = self.ar_text_embedding(x)
+         x = x + self.bert_proj(bert_feature.transpose(1, 2))
+         x = self.ar_text_position(x)
+-        x_mask = make_pad_mask_left(x_lens)
++        # ZLUDA: derive the mask widths from the padded data tensors themselves.
++        # *_lens is a tiny CUDA tensor and under ZLUDA its values can arrive stale
++        # (observed 61 and 119 for a true maximum of 134), which built masks of the
++        # wrong width and aborted training.  The padded width is what must match.
++        x_len = x.shape[1]
++        x_mask = make_pad_mask_left(x_lens, x_len)
+ 
+-        y_mask = make_pad_mask(y_lens)
++        y_len = y.shape[1]
++        y_mask = make_pad_mask(y_lens, y_len)
+         y_mask_int = y_mask.type(torch.int64)
+         codes = y.type(torch.int64) * (1 - y_mask_int)
+ 
+         # Training
+         # AR Decoder
+         y, targets = self.pad_y_eos(codes, y_mask_int, eos_id=self.EOS)
+-        x_len = x_lens.max()
+-        y_len = y_lens.max()
++        x_len = x.shape[1]
++        y_len = y.shape[1]
+         y_emb = self.ar_audio_embedding(y)
+         y_pos = self.ar_audio_position(y_emb)
+ 
+@@ -607,7 +620,7 @@ class Text2SemanticDecoder(nn.Module):
+                 **kwargs,
+             )
+ 
+-        max_len = kwargs.get("max_len", x_lens.max())
++        max_len = kwargs.get("max_len") or seq_max_len(x_lens)  # ZLUDA: CPU reduction
+         x_list = []
+         for x_item, bert_item in zip(x, bert_feature):
+             # max_len = max(max_len, x_item.shape[0], bert_item.shape[1])
+diff --git a/GPT_SoVITS/AR/models/utils.py b/GPT_SoVITS/AR/models/utils.py
+index f3b08a9..57ab202 100644
+--- a/GPT_SoVITS/AR/models/utils.py
++++ b/GPT_SoVITS/AR/models/utils.py
+@@ -6,9 +6,22 @@ import torch
+ import torch.nn.functional as F
+ 
+ 
++def seq_max_len(lengths: torch.Tensor) -> int:
++    """Maximum of a 1-D length tensor, computed on the CPU.
++
++    ZLUDA: CUDA reductions over these tiny length tensors return wrong values
++    (observed 119 for a true maximum of 134), which silently builds masks and
++    length slices of the wrong width and aborts training.  These tensors hold
++    only a handful of elements, so reducing on the CPU is exact and free.
++    """
++    if lengths.is_cuda:
++        return int(lengths.detach().to("cpu").max())
++    return int(lengths.max())
++
++
+ def sequence_mask(length, max_length=None):
+     if max_length is None:
+-        max_length = length.max()
++        max_length = seq_max_len(length)
+     x = torch.arange(max_length, dtype=length.dtype, device=length.device)
+     return x.unsqueeze(0) < length.unsqueeze(1)
+ 
+@@ -33,7 +46,11 @@ def make_pad_mask(lengths: torch.Tensor, max_len: int = 0) -> torch.Tensor:
+             [False, False, False, False, False]])
+     """
+     assert lengths.ndim == 1, lengths.ndim
+-    max_len = max(max_len, lengths.max())
++    # ZLUDA: an explicitly supplied max_len is authoritative.  Callers on the
++    # training path pass the padded width of the data tensor being masked, which
++    # is the width the mask must have; reading lengths.max() instead can yield a
++    # stale value under ZLUDA and produce a mask of the wrong width.
++    max_len = int(max_len) if max_len else seq_max_len(lengths)
+     n = lengths.size(0)
+     seq_range = torch.arange(0, max_len, device=lengths.device)
+     expaned_lengths = seq_range.unsqueeze(0).expand(n, max_len)
+@@ -65,7 +82,8 @@ def make_pad_mask_left(lengths: torch.Tensor, max_len: int = 0) -> torch.Tensor:
+     )
+     """
+     assert lengths.ndim == 1, lengths.ndim
+-    max_len = max(max_len, lengths.max())
++    # ZLUDA: see make_pad_mask - an explicit max_len wins.
++    max_len = int(max_len) if max_len else seq_max_len(lengths)
+     n = lengths.size(0)
+     seq_range = torch.arange(0, max_len, device=lengths.device)
+     expaned_lengths = seq_range.unsqueeze(0).repeat(n, 1)
+diff --git a/GPT_SoVITS/eres2net/kaldi.py b/GPT_SoVITS/eres2net/kaldi.py
+index a24efdc..2c881b4 100644
+--- a/GPT_SoVITS/eres2net/kaldi.py
++++ b/GPT_SoVITS/eres2net/kaldi.py
+@@ -1,9 +1,32 @@
+ import math
++import os
+ from typing import Tuple
+ 
+ import torch
+ from torch import Tensor
+ 
++
++def _fft_needs_cpu() -> bool:
++    """Detect GPUs whose FFT backend is unusable.
++
++    On AMD GPUs running under ZLUDA (e.g. gfx1032 / RX 6600) there is no working
++    rocFFT, so torch.fft.rfft raises "cuFFT error: CUFFT_INTERNAL_ERROR" and the
++    process then spins forever instead of exiting.  Run such FFTs on the CPU and
++    copy the result back.  Force with GPT_SOVITS_FFT_CPU=0/1.
++    """
++    forced = os.environ.get("GPT_SOVITS_FFT_CPU")
++    if forced is not None:
++        return forced.strip().lower() in ("1", "true", "yes", "on")
++    if not torch.cuda.is_available():
++        return False
++    try:
++        return "ZLUDA" in torch.cuda.get_device_name(0)
++    except Exception:
++        return False
++
++
++_FFT_NEEDS_CPU = _fft_needs_cpu()
++
+ __all__ = [
+     "get_mel_banks",
+     "inverse_mel_scale",
+@@ -521,7 +544,12 @@ def fbank(
+     )
+ 
+     # size (m, padded_window_size // 2 + 1)
+-    spectrum = torch.fft.rfft(strided_input).abs()
++    if _FFT_NEEDS_CPU and str(strided_input.device).startswith("cuda"):
++        # ZLUDA/rocFFT cannot run FFT on this GPU (and hangs on failure): do it
++        # on the CPU in float32, then restore the original device and dtype.
++        spectrum = torch.fft.rfft(strided_input.float().cpu()).abs().to(device=device, dtype=dtype)
++    else:
++        spectrum = torch.fft.rfft(strided_input).abs()
+     if use_power:
+         spectrum = spectrum.pow(2.0)
+ 
+diff --git a/GPT_SoVITS/module/core_vq.py b/GPT_SoVITS/module/core_vq.py
+index 4074538..54cd91e 100644
+--- a/GPT_SoVITS/module/core_vq.py
++++ b/GPT_SoVITS/module/core_vq.py
+@@ -158,17 +158,22 @@ class EuclideanCodebook(nn.Module):
+         if self.inited:
+             return
+ 
+-        if dist.is_available() and dist.is_initialized():
++        if not (dist.is_available() and dist.is_initialized()):
++            # ZLUDA / single process: there is no process group, so the
++            # get_rank()/broadcast() calls below would raise.  Build the codebook
++            # locally - there is nothing to synchronise with.
++            embed, cluster_size = kmeans(data, self.codebook_size, self.kmeans_iters)
++        else:
+             # [B * T * world_size, D]
+             data = SyncFunction.apply(data)
+ 
+-        if dist.get_rank() == 0:
+-            embed, cluster_size = kmeans(data, self.codebook_size, self.kmeans_iters)
+-        else:
+-            embed = torch.empty_like(self.embed)
+-            cluster_size = torch.empty_like(self.cluster_size)
+-        dist.broadcast(embed, src=0)
+-        dist.broadcast(cluster_size, src=0)
++            if dist.get_rank() == 0:
++                embed, cluster_size = kmeans(data, self.codebook_size, self.kmeans_iters)
++            else:
++                embed = torch.empty_like(self.embed)
++                cluster_size = torch.empty_like(self.cluster_size)
++            dist.broadcast(embed, src=0)
++            dist.broadcast(cluster_size, src=0)
+ 
+         self.embed.data.copy_(embed)
+         self.embed_avg.data.copy_(embed.clone())
+@@ -193,11 +198,14 @@ class EuclideanCodebook(nn.Module):
+             # [B * T * world_size, D]
+             batch_samples = SyncFunction.apply(batch_samples)
+ 
+-        if dist.get_rank() == 0:
+-            new_embeds = sample_vectors(batch_samples, expired_codes.sum())
++            if dist.get_rank() == 0:
++                new_embeds = sample_vectors(batch_samples, expired_codes.sum())
++            else:
++                new_embeds = torch.zeros(expired_codes.sum(), self.embed.size(1), device=self.embed.device)
++            dist.broadcast(new_embeds, src=0)
+         else:
+-            new_embeds = torch.zeros(expired_codes.sum(), self.embed.size(1), device=self.embed.device)
+-        dist.broadcast(new_embeds, src=0)
++            # ZLUDA / single process: see init_embed_ - nothing to synchronise.
++            new_embeds = sample_vectors(batch_samples, expired_codes.sum())
+         self.embed.data[expired_codes] = new_embeds
+         broadcast_tensors(self.buffers())
+ 
+diff --git a/GPT_SoVITS/module/mel_processing.py b/GPT_SoVITS/module/mel_processing.py
+index 62c7b40..a227d54 100644
+--- a/GPT_SoVITS/module/mel_processing.py
++++ b/GPT_SoVITS/module/mel_processing.py
+@@ -1,3 +1,5 @@
++import os
++
+ import torch
+ import torch.utils.data
+ from librosa.filters import mel as librosa_mel_fn
+@@ -5,6 +7,63 @@ from librosa.filters import mel as librosa_mel_fn
+ MAX_WAV_VALUE = 32768.0
+ 
+ 
++def _fft_needs_cpu() -> bool:
++    """Detect GPUs whose FFT backend is unusable.
++
++    On AMD GPUs running under ZLUDA (e.g. gfx1032 / RX 6600) there is no working
++    rocFFT, so torch.stft raises "cuFFT error: CUFFT_INTERNAL_ERROR" and the
++    process then spins forever instead of exiting.  Run such FFTs on the CPU and
++    copy the result back.  Force with GPT_SOVITS_FFT_CPU=0/1.
++    """
++    forced = os.environ.get("GPT_SOVITS_FFT_CPU")
++    if forced is not None:
++        return forced.strip().lower() in ("1", "true", "yes", "on")
++    if not torch.cuda.is_available():
++        return False
++    try:
++        return "ZLUDA" in torch.cuda.get_device_name(0)
++    except Exception:
++        return False
++
++
++_FFT_NEEDS_CPU = _fft_needs_cpu()
++
++
++def _stft_compat(y, n_fft, hop_size, win_size, window, center):
++    """torch.stft with a CPU fallback for GPUs whose FFT backend is broken.
++
++    PyTorch's CPU FFT has no fp16 implementation, so the CPU path always runs in
++    float32 and the result is cast back to the caller's dtype.
++    """
++    out_dtype = y.dtype
++    if _FFT_NEEDS_CPU and y.is_cuda:
++        spec = torch.stft(
++            y.float().cpu(),
++            n_fft,
++            hop_length=hop_size,
++            win_length=win_size,
++            window=window.float().cpu(),
++            center=center,
++            pad_mode="reflect",
++            normalized=False,
++            onesided=True,
++            return_complex=False,
++        )
++        return spec.to(device=y.device, dtype=out_dtype)
++    return torch.stft(
++        y,
++        n_fft,
++        hop_length=hop_size,
++        win_length=win_size,
++        window=window,
++        center=center,
++        pad_mode="reflect",
++        normalized=False,
++        onesided=True,
++        return_complex=False,
++    )
++
++
+ def dynamic_range_compression_torch(x, C=1, clip_val=1e-5):
+     """
+     PARAMS
+@@ -39,9 +98,9 @@ hann_window = {}
+ 
+ def spectrogram_torch(y, n_fft, sampling_rate, hop_size, win_size, center=False):
+     if torch.min(y) < -1.2:
+-        print("min value is ", torch.min(y))
++        print("min value is ", float(torch.min(y)))
+     if torch.max(y) > 1.2:
+-        print("max value is ", torch.max(y))
++        print("max value is ", float(torch.max(y)))
+ 
+     global hann_window
+     dtype_device = str(y.dtype) + "_" + str(y.device)
+@@ -57,18 +116,7 @@ def spectrogram_torch(y, n_fft, sampling_rate, hop_size, win_size, center=False)
+     )
+     y = y.squeeze(1)
+     # spec = torch.stft(y, n_fft, hop_length=hop_size, win_length=win_size, window=hann_window[wnsize_dtype_device],
+-    spec = torch.stft(
+-        y,
+-        n_fft,
+-        hop_length=hop_size,
+-        win_length=win_size,
+-        window=hann_window[key],
+-        center=center,
+-        pad_mode="reflect",
+-        normalized=False,
+-        onesided=True,
+-        return_complex=False,
+-    )
++    spec = _stft_compat(y, n_fft, hop_size, win_size, hann_window[key], center)
+ 
+     spec = torch.sqrt(spec.pow(2).sum(-1) + 1e-8)
+     return spec
+@@ -92,9 +140,9 @@ def spec_to_mel_torch(spec, n_fft, num_mels, sampling_rate, fmin, fmax):
+ 
+ def mel_spectrogram_torch(y, n_fft, num_mels, sampling_rate, hop_size, win_size, fmin, fmax, center=False):
+     if torch.min(y) < -1.2:
+-        print("min value is ", torch.min(y))
++        print("min value is ", float(torch.min(y)))
+     if torch.max(y) > 1.2:
+-        print("max value is ", torch.max(y))
++        print("max value is ", float(torch.max(y)))
+ 
+     global mel_basis, hann_window
+     dtype_device = str(y.dtype) + "_" + str(y.device)
+@@ -122,18 +170,7 @@ def mel_spectrogram_torch(y, n_fft, num_mels, sampling_rate, hop_size, win_size,
+     )
+     y = y.squeeze(1)
+ 
+-    spec = torch.stft(
+-        y,
+-        n_fft,
+-        hop_length=hop_size,
+-        win_length=win_size,
+-        window=hann_window[wnsize_dtype_device],
+-        center=center,
+-        pad_mode="reflect",
+-        normalized=False,
+-        onesided=True,
+-        return_complex=False,
+-    )
++    spec = _stft_compat(y, n_fft, hop_size, win_size, hann_window[wnsize_dtype_device], center)
+ 
+     spec = torch.sqrt(spec.pow(2).sum(-1) + 1e-8)
+ 
+diff --git a/GPT_SoVITS/s1_train.py b/GPT_SoVITS/s1_train.py
+index 1176f0b..5204ed2 100644
+--- a/GPT_SoVITS/s1_train.py
++++ b/GPT_SoVITS/s1_train.py
+@@ -117,8 +117,12 @@ def main(args):
+         devices=-1 if torch.cuda.is_available() else 1,
+         benchmark=False,
+         fast_dev_run=False,
++        # ZLUDA: only wrap in DDP when there really is more than one GPU.  On a
++        # single device DDP buys nothing, and its gradient reducer
++        # (c10d::Reducer::mark_variable_ready_dense) crashes with an access
++        # violation during the first backward pass in this environment.
+         strategy=DDPStrategy(process_group_backend="nccl" if platform.system() != "Windows" else "gloo")
+-        if torch.cuda.is_available()
++        if torch.cuda.is_available() and torch.cuda.device_count() > 1
+         else "auto",
+         precision=config["train"]["precision"],
+         logger=logger,
+diff --git a/GPT_SoVITS/text/chinese.py b/GPT_SoVITS/text/chinese.py
+index 944c9cb..b9bcf5c 100644
+--- a/GPT_SoVITS/text/chinese.py
++++ b/GPT_SoVITS/text/chinese.py
+@@ -16,11 +16,20 @@ pinyin_to_symbol_map = {
+     for line in open(os.path.join(current_file_path, "opencpop-strict.txt")).readlines()
+ }
+ 
+-import jieba_fast
+ import logging
+ 
+-jieba_fast.setLogLevel(logging.CRITICAL)
+-import jieba_fast.posseg as psg
++try:
++    import jieba_fast
++
++    jieba_fast.setLogLevel(logging.CRITICAL)
++    import jieba_fast.posseg as psg
++except ImportError:
++    # jieba_fast publishes no wheels for Python 3.11 (it needs a C compiler) but is
++    # a drop-in reimplementation of jieba, which is installed.
++    import jieba
++
++    jieba.setLogLevel(logging.CRITICAL)
++    import jieba.posseg as psg
+ 
+ 
+ rep_map = {
+diff --git a/GPT_SoVITS/text/chinese2.py b/GPT_SoVITS/text/chinese2.py
+index acfebfe..d1ffb12 100644
+--- a/GPT_SoVITS/text/chinese2.py
++++ b/GPT_SoVITS/text/chinese2.py
+@@ -17,11 +17,20 @@ pinyin_to_symbol_map = {
+     for line in open(os.path.join(current_file_path, "opencpop-strict.txt")).readlines()
+ }
+ 
+-import jieba_fast
+ import logging
+ 
+-jieba_fast.setLogLevel(logging.CRITICAL)
+-import jieba_fast.posseg as psg
++try:
++    import jieba_fast
++
++    jieba_fast.setLogLevel(logging.CRITICAL)
++    import jieba_fast.posseg as psg
++except ImportError:
++    # jieba_fast publishes no wheels for Python 3.11 (it needs a C compiler) but is
++    # a drop-in reimplementation of jieba, which is installed.
++    import jieba
++
++    jieba.setLogLevel(logging.CRITICAL)
++    import jieba.posseg as psg
+ 
+ # is_g2pw_str = os.environ.get("is_g2pw", "True")##默认开启
+ # is_g2pw = False#True if is_g2pw_str.lower() == 'true' else False
+diff --git a/GPT_SoVITS/text/tone_sandhi.py b/GPT_SoVITS/text/tone_sandhi.py
+index 4ed7378..a9fe2ea 100644
+--- a/GPT_SoVITS/text/tone_sandhi.py
++++ b/GPT_SoVITS/text/tone_sandhi.py
+@@ -14,7 +14,12 @@
+ from typing import List
+ from typing import Tuple
+ 
+-import jieba_fast as jieba
++try:
++    import jieba_fast as jieba
++except ImportError:
++    # jieba_fast publishes no wheels for Python 3.11 (it needs a C compiler) but is
++    # a drop-in reimplementation of jieba, which is installed.
++    import jieba
+ from pypinyin import lazy_pinyin
+ from pypinyin import Style
+ 
+diff --git a/tools/asr/funasr_asr.py b/tools/asr/funasr_asr.py
+index 56d5336..202b9f8 100644
+--- a/tools/asr/funasr_asr.py
++++ b/tools/asr/funasr_asr.py
+@@ -55,7 +55,12 @@ def create_model(language="zh", **kwargs):
+     # For non-classic backends, route to multilingual models regardless of language
+     if backend in ("fun-asr-nano", "sensevoice") and language != "yue":
+         import torch
+-        device = "cuda" if torch.cuda.is_available() else "cpu"
++
++        # Pinned to CPU on purpose.  FunASR's own audio front-end computes FFT, and
++        # on this ZLUDA/ROCm setup rocFFT is broken in a way that HANGS the process
++        # instead of raising an error.  CPU runs at RTF ~0.6 (faster than realtime).
++        # Upstream line was: device = "cuda" if torch.cuda.is_available() else "cpu"
++        device = "cpu"
+         cache_key = f"{language}_{backend}"
+         if cache_key in funasr_models:
+             return funasr_models[cache_key]

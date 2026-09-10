@@ -1,0 +1,37 @@
+MIT License
+
+Copyright (c) 2026 <在此填入你的名字或 GitHub 用户名>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+第三方组件说明
+--------------
+
+本仓库中的补丁（patches/）包含来自以下项目的代码片段，其授权遵循原项目：
+
+  * GPT-SoVITS  https://github.com/RVC-Boss/GPT-SoVITS   (MIT)
+
+本仓库不包含以下第三方组件，仅作引用说明：
+
+  * ZLUDA                       https://github.com/vosen/ZLUDA
+  * AMD ROCm / HIP SDK          由 AMD 分发
+  * rocm.gfx1032.* 社区补丁      来源见 README 第二节，非本仓库作品
+  * FunASR / ModelScope / HuggingFace 上的 ASR 模型
