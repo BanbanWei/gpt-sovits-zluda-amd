@@ -7,7 +7,8 @@ import os
 import sys
 
 MODE = sys.argv[1]
-NOW = r"D:\saves\GPT-SoVITS\GPT-SoVITS"
+import _env
+NOW = _env.gpt_sovits_root()
 sys.path.insert(0, NOW)
 sys.path.insert(0, os.path.join(NOW, "GPT_SoVITS", "eres2net"))
 

@@ -11,8 +11,9 @@ import time
 import traceback
 
 DEVICE = sys.argv[1]
-PROJ = r"D:\saves\GPT-SoVITS\GPT-SoVITS"
-WAV = os.path.join(PROJ, "logs", "GBC", "5-wav32k", "GBC.m4a_0000123520_0000258880.wav")
+import _env
+PROJ = _env.gpt_sovits_root()
+WAV = _env.find_test_wav()
 MODEL_ID = "FunAudioLLM/Fun-ASR-Nano-2512"
 
 

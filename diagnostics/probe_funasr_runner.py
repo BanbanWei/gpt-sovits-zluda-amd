@@ -17,10 +17,11 @@ import os
 import subprocess
 import time
 
-PY = r"D:\saves\GPT-SoVITS\venv_torch25\Scripts\python.exe"
-ONE = r"D:\saves\deepseek-harness\funasr_probe_one.py"
-OUT = r"D:\saves\deepseek-harness\probe_out"
-CWD = r"D:\saves\GPT-SoVITS\GPT-SoVITS"
+import _env
+PY = _env.gpt_sovits_python()
+ONE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "probe_funasr_device.py")
+OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "probe_out")
+CWD = _env.gpt_sovits_root()
 TIMEOUT = 420
 
 os.makedirs(OUT, exist_ok=True)

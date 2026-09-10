@@ -10,11 +10,19 @@ import sys
 import torch
 import yaml
 
-PROJ = r"D:\saves\GPT-SoVITS\GPT-SoVITS"
+import _env
+PROJ = _env.gpt_sovits_root()
 sys.path.insert(0, PROJ)
 sys.path.insert(0, os.path.join(PROJ, "GPT_SoVITS"))
 
-cfg = yaml.safe_load(open(r"D:\saves\deepseek-harness\tmp_s1.yaml", encoding="utf-8"))
+cfg_path = os.environ.get("GPT_SOVITS_S1_CONFIG") or os.path.join(PROJ, "TEMP", "tmp_s1.yaml")
+if not os.path.isfile(cfg_path):
+    raise SystemExit(
+        "找不到 s1 训练配置: %s\n"
+        "请先通过 webui 启动一次 GPT 训练（webui 会写出 TEMP/tmp_s1.yaml），\n"
+        "或用环境变量 GPT_SOVITS_S1_CONFIG 指定你的配置路径。" % cfg_path
+    )
+cfg = yaml.safe_load(open(cfg_path, encoding="utf-8"))
 
 from torch.utils.data import DataLoader
 

@@ -129,7 +129,7 @@ cublasLt.dll / cufftw.dll / zluda_redirect.dll → 不引用任何 ROCm 库（�
 | 项目 | 实测值 |
 |---|---|
 | Python | **3.11.9** (`tags/v3.11.9:de54cf5, Apr 2 2024, 10:12:12`) [MSC v.1938 64 bit] |
-| venv 路径 | `D:\saves\GPT-SoVITS\venv_torch25\` |
+| venv 路径 | 任意（本文示例为 `venv_torch25\`） |
 | PyTorch | **2.5.1+cu118** |
 | torchaudio | **2.5.1+cu118** |
 | ZLUDA 报告的 capability | `(8, 8)` ← 影响 `is_half` 判定，进而决定用不用 fp16 |

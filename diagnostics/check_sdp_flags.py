@@ -2,7 +2,8 @@
 import os
 import sys
 
-sys.path.insert(0, r"D:\saves\GPT-SoVITS\venv_torch25\Lib\site-packages")
+import _env
+sys.path.insert(0, _env.gpt_sovits_site_packages())
 import torch
 
 print("zluda_compat loaded      :", "zluda_compat" in sys.modules)

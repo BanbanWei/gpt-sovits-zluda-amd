@@ -122,7 +122,11 @@ rocm gfx1032 for hip skd 6.2.4(navi21 logic)\
 
 > 本仓库不附带该补丁（体积大且非我原创）。它在中文社区以 `rocm.gfx1032.for.hip.sdk.6.2.4.navi21.logic` 之名流传，按此名搜索即可。若你的卡是 gfx1030 / gfx1100 等 ROCm 官方支持的型号，**跳过这一步**。
 
-**验证**：用本仓库的 `diagnostics/` 探针跑 `matmul_fp32`，应 `OK`。
+**验证**：用本仓库的 `diagnostics/` 探针跑 `matmul_fp32`（在 `probe_fft.py` 里），应 `OK`：
+
+```powershell
+C:\ZLUDA\bin\zluda.exe <venv>\Scripts\python.exe diagnostics\run_modes.py diagnostics\probe_fft.py 60 matmul_fp32
+```
 
 ### 3. 安装 ZLUDA 3.9.5
 
@@ -270,7 +274,17 @@ git apply --check <本仓库>\patches\gpt-sovits-zluda.patch
 
 > 进度条的差异不是 bug：s1 用的是 PyTorch Lightning 的 **rich** 进度条（原地重绘，只发 `\r` 不发换行），一旦输出被重定向/管道接管，就被按行缓冲吞掉；s2 用的 **tqdm** 会自动退化成逐行打印，所以照样可见。**想要 GPT 进度条就不要重定向。**
 
-改路径：两个 bat 里把 `<GPT-SoVITS根目录>`、venv 路径、`C:\ZLUDA` 路径替换成你自己的。
+**路径不用改** —— 两个 bat 会自己找：从 `launchers\` 的上级目录出发，按 `..\GPT-SoVITS\GPT-SoVITS`、`..\GPT-SoVITS`、`GPT-SoVITS`、当前目录的顺序找含 `webui.py` + `GPT_SoVITS\` 的目录，再在它附近找 `venv_torch25` / `venv` / `.venv`。找不到会明确告诉你去改哪个变量。
+
+只有布局特殊时才需要动顶部的「配置区」三行，或者先设环境变量（优先级更高）：
+
+```bat
+set "GPT_ROOT=D:\path\to\GPT-SoVITS"
+set "VENV_DIR=D:\path\to\venv_torch25"
+set "ZLUDA_DIR=C:\ZLUDA"
+```
+
+也支持 `GPT_SOVITS_ROOT` / `GPT_SOVITS_VENV` 环境变量。
 
 ### 7. 首次运行验证
 
@@ -282,10 +296,12 @@ C:\ZLUDA\bin\zluda.exe <venv>\Scripts\python.exe -c "..."   # ✗ 会报 Unrecog
 正确做法是用仓库里的验证脚本：
 
 ```powershell
-C:\ZLUDA\bin\zluda.exe <venv>\Scripts\python.exe diagnostics\run_modes.py diagnostics\probe_ops.py 60 matmul_fp32 conv1d_fwd linear_fp32 fft_fp32
+C:\ZLUDA\bin\zluda.exe <venv>\Scripts\python.exe diagnostics\run_modes.py diagnostics\probe_fft.py 60 cuda_basic matmul_fp32 conv_fp16 rfft_fp32
 ```
 
-期望：`matmul` / `conv` / `linear` 为 `OK`，`fft` 为 `HANG`（**这是预期的**——rocFFT 在 gfx1032 上不可用，项目补丁已把 FFT 挪到 CPU，所以项目本身不依赖 GPU FFT）。
+期望：`cuda_basic` / `matmul_fp32` / `conv_fp16` 为 `OK`，`rfft_fp32` 为 `FAIL` 或 `HANG`（**这是预期的**——rocFFT 在 gfx1032 上不可用，项目补丁已把 FFT 挪到 CPU，所以项目本身不依赖 GPU FFT）。
+
+> 模式名必须和脚本对上：`cuda_basic` / `matmul_fp32` / `rfft_fp32` 在 `probe_fft.py`，`linear_*` 在 `probe_blas.py`，卷积反向在 `probe_ops.py`。用错脚本会得到 `unknown mode`，那不是环境问题。完整对照表见 `diagnostics/README.md`。
 
 ---
 
@@ -359,8 +375,9 @@ C:\ZLUDA\bin\zluda.exe <venv>\Scripts\python.exe diagnostics\run_modes.py diagno
 **每个探针都在独立进程里跑，并带硬超时**——因为 ZLUDA 的失败模式经常是**挂死而不是报错**，放在同一个进程里会让整个排查卡在第一个问题上。
 
 ```powershell
-# 把 A 和 B 两个探针各自跑一遍，60 秒超时
-C:\ZLUDA\bin\zluda.exe <venv>\Scripts\python.exe diagnostics\run_modes.py diagnostics\probe_ops.py 60 matmul_fp32 fft_fp32
+# 每个模式一个独立子进程，60 秒超时；同一脚本内可一次给多个模式
+C:\ZLUDA\bin\zluda.exe <venv>\Scripts\python.exe diagnostics\run_modes.py diagnostics\probe_blas.py 60 linear_fp32 addmm_fp32
+C:\ZLUDA\bin\zluda.exe <venv>\Scripts\python.exe diagnostics\run_modes.py diagnostics\probe_ops.py  60 conv1d_bwd convtranspose_bwd_fp16 net_full_bwd
 ```
 
 输出判定：`OK` / `FAIL`（有异常）/ `HANG`（超时被杀）。

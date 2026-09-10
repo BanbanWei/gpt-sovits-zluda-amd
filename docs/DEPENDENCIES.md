@@ -114,7 +114,7 @@ GPT-SoVITS 仓库根目录的 **`requirements_zluda.txt`** 已包含上述版本
 
 ```powershell
 # 注意：必须写成脚本文件用 zluda.exe 启动，python -c 会被 zluda.exe 吃掉参数
-C:\ZLUDA\bin\zluda.exe <venv>\Scripts\python.exe diagnostics\run_modes.py diagnostics\probe_ops.py 30 cuda_basic
+C:\ZLUDA\bin\zluda.exe <venv>\Scripts\python.exe diagnostics\run_modes.py diagnostics\probe_fft.py 30 cuda_basic
 ```
 
 期望输出包含：

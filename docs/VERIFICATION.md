@@ -9,8 +9,10 @@
 复现方式：
 
 ```powershell
-C:\ZLUDA\bin\zluda.exe <venv>\Scripts\python.exe diagnostics\run_modes.py diagnostics\probe_ops.py 60 <模式名> [<模式名> ...]
+C:\ZLUDA\bin\zluda.exe <venv>\Scripts\python.exe diagnostics\run_modes.py diagnostics\<探针脚本>.py 60 <模式名> [<模式名> ...]
 ```
+
+> 每个探针脚本支持的**模式名各不相同**，完整对照表见 `diagnostics/README.md`。模式名用错会得到 `RESULT FAIL unknown mode`，那不是环境问题。
 
 ---
 
@@ -86,9 +88,9 @@ RuntimeError: CUDA error: CUBLAS_STATUS_NOT_SUPPORTED when calling
 
 | 探针 | baseline | `HSA_OVERRIDE_GFX_VERSION=10.3.0` |
 |---|---|---|
-| `rfft` fp32 | **HANG** | **HANG** |
-| `rfft` fp16 | **HANG** | — |
-| `stft` fp32 | **HANG** | **HANG** |
+| `rfft` fp32 | **FAIL / HANG** | **FAIL / HANG** |
+| `rfft` fp16 | **FAIL / HANG** | — |
+| `stft` fp32 | **FAIL / HANG** | **FAIL / HANG** |
 | `matmul` fp32 | OK 3.3s | OK 5.2s |
 
 报错原文（fp32 也一样）：
@@ -97,7 +99,9 @@ RuntimeError: CUDA error: CUBLAS_STATUS_NOT_SUPPORTED when calling
 RuntimeError: cuFFT error: CUFFT_INTERNAL_ERROR
 ```
 
-**注意所有 HANG 的实测耗时都是 60–120 秒**：异常其实**已经打印出来了**，但进程继续空转直到硬超时。这就是"看起来在跑其实早失败了"的机制。
+**为什么判定写成 `FAIL / HANG` 而不是单写一个**：同一个探针在不同次运行里会呈现两种形态 —— 有时 2.8 秒内直接抛异常退出（`FAIL`），有时异常**已经打印出来了**但进程继续空转直到硬超时（`HANG`，实测 60–120 秒）。后者就是"看起来在跑其实早失败了"的机制。
+
+**两种形态都是彻底失败**，别因为某次跑出的是 `FAIL`（看起来更快更"正常"）就以为问题变轻了 —— 这是同一个根因的两种表现，与温度、显存、首次/缓存运行有关。
 
 **`HSA_OVERRIDE_GFX_VERSION=10.3.0` 无效** —— 所以这不是"内核库选错架构"，而是 FFT 这条路本身不通。
 

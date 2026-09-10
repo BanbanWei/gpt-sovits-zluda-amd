@@ -10,7 +10,8 @@ import sys
 import traceback
 
 MODE = sys.argv[1]
-PROJ = r"D:\saves\GPT-SoVITS\GPT-SoVITS"
+import _env
+PROJ = _env.gpt_sovits_root()
 sys.path.insert(0, PROJ)
 sys.path.insert(0, os.path.join(PROJ, "GPT_SoVITS"))
 

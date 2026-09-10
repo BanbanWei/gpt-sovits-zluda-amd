@@ -11,11 +11,12 @@ import subprocess
 import sys
 import time
 
-PY = r"D:\saves\GPT-SoVITS\venv_torch25\Scripts\python.exe"
-CWD = r"D:\saves\GPT-SoVITS\GPT-SoVITS"
-OUT = r"D:\saves\deepseek-harness\probe_out"
+import _env
+PY = _env.gpt_sovits_python()
+CWD = _env.gpt_sovits_root()
+OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "probe_out")
 
-script = sys.argv[1]
+script = os.path.abspath(sys.argv[1])   # 子进程 cwd 不同，必须先转绝对路径
 timeout = int(sys.argv[2])
 modes = sys.argv[3:]
 
